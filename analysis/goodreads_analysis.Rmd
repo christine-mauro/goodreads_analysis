@@ -1,0 +1,369 @@
+---
+title: "Goodreads Analysis - August 2019"
+author: "Christine Mauro"
+date: "8/31/2019"
+output: 
+  html_document:
+    code_folding: "hide"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+library(tidyverse)
+
+theme_set(theme_bw() + theme(legend.position = "bottom"))
+```
+
+## Introduction
+This report combines my two loves, reading and statistics! I downloaded this data from my Goodreads account on August 31st, 2019. to download your own Goodreads data go to this [page](https://www.goodreads.com/review/import). This is also one of my first data analyses using the tidyverse, R Markdown, and GitHub. Code and data can be found on my [GitHub](https://github.com/christine-mauro/goodreads_analysis).
+
+According to their website, Goodreads is the world’s largest site for readers and book recommendations. Their mission is to help people find and share books they love. Essentially it is a social media site for book-lovers. Goodreads launched in January 2007. I started logging in Goodreads in January 2014 and started listening to audiobooks in November 2014 (first audiobook: *The Snow Child* by Eowyn Ivey).
+
+In addition to practicing my reproducible research skills, I was interested in exploring two research questions: 1) Now that I listen to audiobooks, do I read less actual books? 2) Have I given out fewer five-star reviews over time? 
+
+```{r cars, echo=FALSE, include=FALSE}
+read_books = 
+  read_csv(here::here("data", "./goodreads_library_export_08_31_19.csv")) %>% 
+  janitor::clean_names() %>% 
+  filter(exclusive_shelf == "read") %>% 
+  separate(col = "date_read", into = c("year_read","month_read","day_read")) %>% 
+  mutate(bookshelves = if_else(is.na(bookshelves), "book", bookshelves),
+         month_read = factor(month.abb[as.numeric(month_read)], levels = month.abb),
+         rating_fact = as.factor(my_rating)) %>% 
+  filter(book_id != "42135029") %>%  #removes duplicate listing for City of Girls
+  
+  mutate(bookshelves = if_else(book_id == "27281500", "audiobook", bookshelves)) %>%  #fix label for Gilbert - Big Magic
+  mutate(bookshelves = if_else(book_id == "620125", "audiobook", bookshelves)) #fix label for Rowling - HP Chamber 
+```
+
+## Basic descriptive statistics and visualizations
+
+First I'll explore the basics descriptives of my reading (and listening) habit. What kind of books do I tend to read (actual books vs. audio)? Do I have a favorite publisher or author? How long are the books that I read?
+
+For [reference](https://www.bustle.com/p/how-many-books-did-the-average-american-read-in-the-last-year-this-new-study-may-surprise-you-8837851), "Americans read a mean **average of 12 books per year**, and the **typical (median) American has read four books** in the past 12 months."
+
+Since I started logging on Goodreads, I have read or listened to `r  summarise(read_books, freq = n())` books! Below is a breakdown of book type (actual book vs. audio)
+```{r pressure}
+#Count by Type (Audio vs. Book)
+read_books %>% 
+  group_by(bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  mutate(perc = round(freq / sum(freq), 2)) %>% 
+  knitr::kable()
+```
+
+Below is data on frequency of publisher (restricted to counts of 3 or more) and author (restricted to counts of 1 or more). My most popular author is Jamie Beck. Jamie is a local author who I had the pleasure of meeting through my book club several years ago. Her work is mostly romance or women's fiction. My next most popular author is J.K. Rowling (no introduction needed). I started listening/reading the Harry Potter series in November 2015 and finished in August 2016. I was way behind the times, as this was my first HP experience (still haven't seen the movies!). After many attempts at reading the first book, I started listening to it on audio and was quickly enamored. Jim Dale is an amazing narrator!
+
+```{r }
+#Count by Publisher (restricted to count > 3)
+read_books %>% 
+  group_by(publisher) %>% 
+  summarise(freq = n()) %>% 
+  filter(freq > 3) %>% 
+  arrange(desc(freq)) %>% 
+  knitr::kable()
+  
+#Count by Author (restricted to count >1)
+read_books %>% 
+  group_by(author) %>% 
+  summarise(freq = n()) %>% 
+  filter(freq > 1) %>% 
+  arrange(desc(freq)) %>% 
+  knitr::kable()
+```
+
+Next is a plot that shows publication year for books that I have read or listened to. The only pre-1900 book I have read is *`r select(filter(read_books, original_publication_year<1900), title)`* by `r select(filter(read_books, original_publication_year<1900), author)`. 
+
+```{r }
+# Count by Publication Year
+read_books %>% 
+  group_by(original_publication_year) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(x = original_publication_year, y = freq)) +
+    geom_point() +
+    ggtitle("Count by Publication Year") +
+    xlab("Publication Year") +
+    ylab ("count")
+```
+
+Lastly, are a histogram and descriptive statistics for book length (excluding audiobooks).
+```{r }
+#Histogram of Book Length (no audiobooks)
+filter(read_books, bookshelves == "book") %>% 
+  ggplot(aes(x = number_of_pages)) +
+  geom_histogram() +
+  ggtitle("Histgram of book length (no audiobooks)") +
+  xlab("Length (pages)")
+
+#short = filter(read_books, number_of_pages<20 & bookshelves=="book")
+
+## Descriptive Stats for length of book (no audiobooks)
+filter(read_books, bookshelves == "book") %>% 
+  summarize(
+    min = min (number_of_pages, na.rm = TRUE),
+    mean = mean(number_of_pages, na.rm = TRUE), 
+    median = median(number_of_pages, na.rm = TRUE),
+    max = max(number_of_pages, na.rm = TRUE),
+    sum = sum(number_of_pages, na.rm = TRUE)) %>% 
+  knitr::kable()
+```
+
+## Trends over time
+Next, I'll explore trends over time in my reading patterns. As the below plot shows, I tend to read the most books in June, July, and August. As an academic, this wasn't surprising to me at all. No teaching = more time to read!
+
+```{r}
+# read_books %>% 
+#   filter(is.na(year_read)) %>% 
+#   summarise(title)
+
+#Count by year
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(year_read) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(x = year_read, y = freq)) +
+    geom_bar(stat = "identity") +
+    ggtitle("Frequency by Year") +
+    xlab("Year Read") +
+    ylab("Count")
+
+#Count by month
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(month_read) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(x = month_read, y = freq)) +
+    geom_bar(stat = "identity") +
+    ggtitle("Frequency by Month") +
+    xlab("Month Read") +
+    ylab("Count")
+```
+
+
+Next, I'll explore my first research question: Now that I listen to audiobooks, do I read fewer actual books? I also wanted to know whether the bump in books read for June, July, and August can be explained by more actual reading vs. listening.
+
+The good news is that the number of books that I actually read has stayed relatively constant over time and has not been impacted by my listening to audiobooks.  It also looks like I read vs. listen more in June, July, and August.
+
+```{r }
+#Count by year and type
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(year_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  filter(bookshelves=="book") %>% 
+  knitr::kable()
+  
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(year_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  filter(bookshelves=="audiobook") %>% 
+  knitr::kable()
+
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(year_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(x = year_read, y = freq, fill = bookshelves)) +
+    geom_bar(stat = "identity") +
+    ggtitle("Frequency by Year and Type") +
+    xlab("Year Read") +
+    ylab("Count")
+
+#Count by month and type
+read_books %>% 
+  filter(!is.na(year_read)) %>%
+  group_by(month_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(x = month_read, y = freq, fill = bookshelves)) +
+    geom_bar(stat = "identity") +
+    ggtitle("Frequency by Month and Type") +
+    xlab("Month Read") +
+    ylab("Count")
+
+
+## Proportion of Book Type by Year
+read_books %>% 
+  filter(!is.na(year_read)) %>% 
+  group_by(year_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  mutate(perc = freq / sum(freq)) %>% 
+  ggplot(aes(x = year_read, y = perc, group = bookshelves, color = bookshelves)) +
+    geom_point() + geom_line() +
+    ggtitle("Proportion of Book Type by Year") +
+    xlab("Year Read") +
+    ylab("Percent")
+
+## Proportion of Book Type by Month 
+read_books %>% 
+  filter(!is.na(year_read)) %>% 
+  group_by(month_read, bookshelves) %>% 
+  summarise(freq = n()) %>% 
+  mutate(perc = freq / sum(freq)) %>% 
+  ggplot(aes(x = month_read, y = perc, group = bookshelves, color = bookshelves)) +
+    geom_point() + geom_line() +
+    ggtitle("Proportion of Book Type by Month") +
+    xlab("Month Read") +
+    ylab("Percent")
+
+  
+# Median Book Length by Year (no audiobooks)
+# read_books %>% 
+#   filter(bookshelves == "book") %>% 
+#   filter(!is.na(year_read)) %>% 
+#   group_by(bookshelves, year_read) %>% #this is necessary to get the line plot part below
+#   summarize(median = median(number_of_pages, na.rm = TRUE)) %>% 
+#   ggplot(aes(x = year_read, y = median, group = bookshelves)) +
+#     geom_line() + geom_point() +
+#     ggtitle("Median Book Length by Year (no audiobooks)") +
+#     xlab("Year Read") +
+#     ylab("Median (pages)")
+```
+
+## Ratings over time
+Now I'll explore my ratings on Goodreads. You can rate books on a scale from one to five stars, with higher stars indicating better reads. I'll explore my ratings versus the Goodreads average rating that each book has and also look at my ratings over time. This will let me assess my second research question: Have I given out fewer five-star reviews over time? 
+
+I'll also provide a list of my five-star books by year read.
+
+Of note, if you choose not to rate a book on Goodreads, Goodreads will assign a rating of 0.  In my dataset, I've not rated `r summarise(filter(read_books, rating_fact ==0), freq = n())` books. They are excluded below.
+
+I learned the following from these visualizations:
+
+  * I have never given a one-star review. 
+  * My average book rating has gone down with time.
+  * I tend to give audiobooks higher ratings.
+
+
+```{r}
+## My rating vs. Average Rating
+read_books %>% 
+  filter(rating_fact !=0) %>% 
+  ggplot(aes(x = rating_fact, y = average_rating)) +
+    geom_boxplot() +
+    ggtitle("CMM's Rating vs. Average Rating") +
+    xlab("CMM Rating") +
+    ylab("Goodreads Average Rating")
+
+# Proportion of Rating Level by Year
+read_books %>% 
+  filter(rating_fact !=0) %>% 
+  #filter(!is.na(year_read), year_read != 14, year_read != 19) %>% 
+  group_by(year_read, rating_fact) %>% 
+  summarise(freq = n()) %>% 
+  mutate(perc = freq / sum(freq)) %>% 
+  ggplot(aes(x = year_read, y = perc, group = rating_fact, color = rating_fact)) +
+    geom_point() + geom_line() +
+    ggtitle("Proportion of Book Rating Level by Year and Type") +
+    xlab("Year Read") +
+    ylab("Percent")
+
+#Average book rating by year and type
+read_books %>% 
+  #filter(!is.na(year_read), year_read != 14, year_read != 19) %>% 
+  filter(rating_fact !=0) %>% 
+  group_by(year_read, bookshelves) %>% 
+  summarise(mean = mean(my_rating)) %>% 
+  ggplot(aes(x = year_read, y = mean, group = bookshelves, color = bookshelves)) +
+    geom_point() + geom_line() +
+    ggtitle("Average Book Rating by Year and Type") +
+    xlab("Year Read") +
+    ylab("Mean Rating")
+```
+
+Below is a list of books that I have given five stars to by year. In the last section of this document, I pick one or two **top** five-star books from each year and provide a brief summary (taken from [Amazon](amazon.com)).
+
+``` {r }
+read_books %>% 
+  filter(my_rating == 5) %>% 
+  select(year_read, bookshelves, average_rating, title, author) %>% 
+  arrange(year_read) %>% 
+  knitr::kable()
+```
+
+## Top picks! 
+Below I pick one or two favorites from each year, with a focus on picking books that you may not have heard of. Descriptions are taken from Amazon and are not my own. Please let me know what your thoughts are if you decide to read any of them!
+
+### 2014
+*The Snow Child*, Eowyn Ivey:
+
+"Alaska, 1920: a brutal place to homestead, and especially tough for recent arrivals Jack and Mabel. Childless, they are drifting apart--he breaking under the weight of the work of the farm; she crumbling from loneliness and despair. In a moment of levity during the season's first snowfall, they build a child out of snow. The next morning the snow child is gone--but they glimpse a young, blonde-haired girl running through the trees.
+
+This little girl, who calls herself Faina, seems to be a child of the woods. She hunts with a red fox at her side, skims lightly across the snow, and somehow survives alone in the Alaskan wilderness. As Jack and Mabel struggle to understand this child who could have stepped from the pages of a fairy tale, they come to love her as their own daughter. But in this beautiful, violent place things are rarely as they appear, and what they eventually learn about Faina will transform all of them."
+
+*The Rosie Project (Don Tillman, #1)*, Graeme Simsion:
+
+"The art of love is never a science: Meet Don Tillman, a brilliant yet socially inept professor of genetics, who’s decided it’s time he found a wife. In the orderly, evidence-based manner with which Don approaches all things, he designs the Wife Project to find his perfect partner: a sixteen-page, scientifically valid survey to filter out the drinkers, the smokers, the late arrivers.
+
+Rosie Jarman possesses all these qualities. Don easily disqualifies her as a candidate for The Wife Project (even if she is “quite intelligent for a barmaid”). But Don is intrigued by Rosie’s own quest to identify her biological father. When an unlikely relationship develops as they collaborate on The Father Project, Don is forced to confront the spontaneous whirlwind that is Rosie―and the realization that, despite your best scientific efforts, you don’t find love, it finds you."
+
+### 2015
+
+*Station Eleven*, Emily St. John Mandel
+
+"Kirsten Raymonde will never forget the night Arthur Leander, the famous Hollywood actor, had a heart attack on stage during a production of King Lear. That was the night when a devastating flu pandemic arrived in the city, and within weeks, civilization as we know it came to an end.
+
+Twenty years later, Kirsten moves between the settlements of the altered world with a small troupe of actors and musicians. They call themselves The Traveling Symphony, and they have dedicated themselves to keeping the remnants of art and humanity alive. But when they arrive in St. Deborah by the Water, they encounter a violent prophet who will threaten the tiny band’s existence. And as the story takes off, moving back and forth in time, and vividly depicting life before and after the pandemic, the strange twist of fate that connects them all will be revealed."
+
+### 2016
+
+*The Night Circus*, Erin Morgenstern
+
+"The circus arrives without warning. No announcements precede it. It is simply there, when yesterday it was not. Within the black-and-white striped canvas tents is an utterly unique experience full of breathtaking amazements. It is called Le Cirque des Rêves, and it is only open at night.
+
+But behind the scenes, a fierce competition is underway: a duel between two young magicians, Celia and Marco, who have been trained since childhood expressly for this purpose by their mercurial instructors. Unbeknownst to them both, this is a game in which only one can be left standing. Despite the high stakes, Celia and Marco soon tumble headfirst into love, setting off a domino effect of dangerous consequences, and leaving the lives of everyone, from the performers to the patrons, hanging in the balance."
+
+*The Story of the Lost Child*, Elena Ferrante
+(Book 4 of the Neapolitan Novels - Book 1 is *My Brillant Friend*)
+
+"Beginning in the 1950s in a poor but vibrant neighborhood on the outskirts of Naples, Ferrante’s four-volume story spans almost sixty years, as its protagonists, the fiery and unforgettable Lila, and the bookish narrator, Elena, become women, wives, mothers, and leaders, all the while maintaining a complex and at times conflictual friendship. Book one in the series follows Lila and Elena from their first fateful meeting as ten-year-olds through their school years and adolescence. 
+
+Through the lives of these two women, Ferrante tells the story of a neighborhood, a city, and a country as it is transformed in ways that, in turn, also transform the relationship between her protagonists."
+
+
+### 2017
+*The Girl With All the Gifts*, M.R. Carey
+
+"Melanie is a very special girl. Dr Caldwell calls her `our little genius.'
+
+Every morning, Melanie waits in her cell to be collected for class. When they come for her, Sergeant keeps his gun pointing at her while two of his people strap her into the wheelchair. She thinks they don't like her. She jokes that she won't bite, but they don't laugh.
+
+The Girl With All the Gifts is a groundbreaking thriller, emotionally charged and gripping from beginning to end."
+
+*A Man Called Ove*, Fredrik Backman
+
+"Meet Ove. He’s a curmudgeon—the kind of man who points at people he dislikes as if they were burglars caught outside his bedroom window. He has staunch principles, strict routines, and a short fuse. People call him “the bitter neighbor from hell.” But must Ove be bitter just because he doesn’t walk around with a smile plastered to his face all the time?
+
+Behind the cranky exterior there is a story and a sadness. So when one November morning a chatty young couple with two chatty young daughters move in next door and accidentally flatten Ove’s mailbox, it is the lead-in to a comical and heartwarming tale of unkempt cats, unexpected friendship, and the ancient art of backing up a U-Haul. All of which will change one cranky old man and a local residents’ association to their very foundations."
+
+### 2018
+
+*Educated*, Tara Westover
+
+"Born to survivalists in the mountains of Idaho, Tara Westover was seventeen the first time she set foot in a classroom. Her family was so isolated from mainstream society that there was no one to ensure the children received an education, and no one to intervene when one of Tara’s older brothers became violent. When another brother got himself into college, Tara decided to try a new kind of life. Her quest for knowledge transformed her, taking her over oceans and across continents, to Harvard and to Cambridge University. Only then would she wonder if she’d traveled too far, if there was still a way home."
+
+*A Gentleman in Moscow*, Amor Towles
+
+"In 1922, Count Alexander Rostov is deemed an unrepentant aristocrat by a Bolshevik tribunal, and is sentenced to house arrest in the Metropol, a grand hotel across the street from the Kremlin. Rostov, an indomitable man of erudition and wit, has never worked a day in his life, and must now live in an attic room while some of the most tumultuous decades in Russian history are unfolding outside the hotel’s doors. Unexpectedly, his reduced circumstances provide him entry into a much larger world of emotional discovery."
+
+### 2019
+
+*This is How it Always is*, Laurie Frankel
+
+"This is how a family keeps a secret… and how that secret ends up keeping them.
+
+This is how a family lives happily ever after…until happily ever after becomes complicated.
+
+This is how children change…and then change the world.
+
+This is Claude. He’s five years old, the youngest of five brothers, and loves peanut butter sandwiches. He also loves wearing a dress, and dreams of being a princess.
+
+When he grows up, Claude says, he wants to be a girl.
+
+Rosie and Penn want Claude to be whoever Claude wants to be. They’re just not sure they’re ready to share that with the world. Soon the entire family is keeping Claude’s secret. Until one day it explodes."
